@@ -17,23 +17,24 @@ pipeline {
     ROLE_ARN = 'arn:aws:iam::543681704666:role/jenkins-nataas'
   }
 
-stage('Checkout repo') {
-  steps {
-    dir('opt/ip_filler/') {
-      git(
-        url: 'https://github.com/spidlisn/ip_filler.git',
-        credentialsId: 'cicd/github/cloudsec_nataas_ci_github_cloud_token',
-        branch: "main"
-      )
-      // Check if the checkout was successful
-      script {
-        if (!fileExists('README.md')) {
-          error("Checkout failed: README.md not found")
+stages {
+  stage('Checkout repo') {
+    steps {
+      dir('opt/ip_filler/') {
+        git(
+          url: 'https://github.com/spidlisn/ip_filler.git',
+          credentialsId: 'cicd/github/cloudsec_nataas_ci_github_cloud_token',
+          branch: "main"
+        )
+        // Check if the checkout was successful
+        script {
+          if (!fileExists('README.md')) {
+            error("Checkout failed: README.md not found")
+          }
         }
       }
     }
   }
-}
 
   // stages {
   //   stage("Installing the python dependencies") {
@@ -50,6 +51,7 @@ stage('Checkout repo') {
   //     }
   //   }
   // }
+}
   post {
       always {
           script {
