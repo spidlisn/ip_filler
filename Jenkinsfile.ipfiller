@@ -1,0 +1,60 @@
+@Library("thor-shared-pipelines") _
+
+pipeline {
+
+  agent {
+    label "generic"
+  }
+
+  options{
+    instanceType('t3.large')
+    buildDiscarder(logRotator(numToKeepStr: '30'))
+    instanceExecutors('1')
+  }
+
+  environment {
+    // The ARN for the cross-account role created in CI/CD account
+    ROLE_ARN = 'arn:aws:iam::543681704666:role/jenkins-nataas'
+  }
+
+stage('Checkout repo') {
+  steps {
+    dir('opt/ip_filler/') {
+      git(
+        url: 'https://github.com/spidlisn/ip_filler.git',
+        credentialsId: 'cicd/github/cloudsec_nataas_ci_github_cloud_token',
+        branch: "main"
+      )
+      // Check if the checkout was successful
+      script {
+        if (!fileExists('README.md')) {
+          error("Checkout failed: README.md not found")
+        }
+      }
+    }
+  }
+}
+
+  // stages {
+  //   stage("Installing the python dependencies") {
+  //     steps{
+  //       timeout(time: 30, unit: 'MINUTES') {
+  //         withAWS(role: env.ROLE_ARN) {
+  //           sh """#!/bin/bash
+  //           echo 'Installing and upgrading dependencies'
+  //           ansible-galaxy collection install amazon.aws
+  //           python3 -m pip install --upgrade pip awscli requests urllib3 pyOpenSSL
+  //           """
+  //         }
+  //       }
+  //     }
+  //   }
+  // }
+  post {
+      always {
+          script {
+              cleanWs()
+          }
+      }
+  }
+}

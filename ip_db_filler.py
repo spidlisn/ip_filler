@@ -122,7 +122,7 @@ async def insert_ip_addresses(engine, region, ip_addresses, debug=False):
     progress_bar = tqdm.tqdm(total=total_ips, desc="Inserting IPs", miniters=2, ncols=100)
 
     async with engine.begin() as connection:
-        await lock_region_table(connection, region)
+        # await lock_region_table(connection, region)
 
         insert_query = text("""
             INSERT IGNORE INTO ipaddress_inside_regional (region, address, timestamp, inuse)
@@ -181,7 +181,7 @@ async def async_main(args):
     engine = create_async_engine(db_url)
 
     try:
-        logger.info(await validate_region(engine, args.api_region))
+        # logger.info(await validate_region(engine, args.api_region))
         if not await validate_region(engine, args.api_region):
             logger.error(f"Region {args.region} not found in database")
             return
