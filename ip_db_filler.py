@@ -1,5 +1,6 @@
 import os
 import subprocess
+import json
 import asyncio
 import tqdm
 import logging
@@ -58,16 +59,21 @@ async def get_db_credentials(environment, aws_region):
     if environment == "local":
         return {"root": "strongpassword"}
 
-    cmd = f'AWS_PROFILE=nataas-{environment} AWS_REGION={aws_region} summon --yaml "SECRET_RDS_CREDENTIAL: !var {environment}/api/rds" --provider summon-aws-secrets printenv SECRET_RDS_CREDENTIAL'
-    proc = await asyncio.create_subprocess_shell(
-        cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
+    session = boto3.session.Session(profile_name=f'nataas-{environment}', region_name=aws_region)
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=aws_region
     )
-    stdout, stderr = await proc.communicate()
-    credentials = stdout.decode('utf-8').strip()
 
-    return eval(credentials)
+    # Match the exact path format from summon command
+    secret_name = f"{environment}/api/rds"
+    try:
+        response = client.get_secret_value(SecretId=secret_name)
+        credentials = json.loads(response['SecretString'])
+        return credentials
+    except client.exceptions.ResourceNotFoundException:
+        logger.error(f"Secret not found: {secret_name}")
+        raise SystemExit(1)
 
 
 async def get_expanded_network_ips(expanded_network, current_network):
@@ -175,6 +181,7 @@ async def async_main(args):
     engine = create_async_engine(db_url)
 
     try:
+        logger.info(await validate_region(engine, args.api_region))
         if not await validate_region(engine, args.api_region):
             logger.error(f"Region {args.region} not found in database")
             return
