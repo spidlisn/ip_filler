@@ -15,6 +15,7 @@ pipeline {
   environment {
     // The ARN for the cross-account role created in CI/CD account
     ROLE_ARN = 'arn:aws:iam::543681704666:role/jenkins-nataas'
+    SL_CREDENTIALS_ID = 'sldeploykey_user_pass'
   }
 
 stages {
@@ -46,6 +47,21 @@ stages {
           }
     }
   }
+
+    stage('Run stale-tunnels script') {
+            steps {
+                 withStreamline(credentialsId: env.SL_CREDENTIALS_ID) {
+                    withAWS(role: env.ROLE_ARN){
+                      dir('opt/ip_filler/') {
+                          sh '''
+                          . venv/bin/activate
+
+                          sl aws session generate --account-id 085681790652 --role-name owner --region us-east-1 --profile nataas-dev
+                          ip_db_filler --env dev --api_region dev_aws_us-west-2_5 --db_region eu-west-1 --debug
+                          '''
+                        }
+                    }
+              }
 
   // stages {
   //   stage("Installing the python dependencies") {
