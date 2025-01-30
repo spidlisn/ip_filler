@@ -72,7 +72,7 @@ stages {
                       dir('opt/ip_filler/') {
                           sh '''
                           . venv/bin/activate
-                          nataas-dev
+
                           ip_db_filler --env dev --api_region dev_aws_us-west-2_5 --db_region eu-west-1 --debug
                           '''
                         }
