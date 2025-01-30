@@ -34,7 +34,7 @@ stages {
       steps {
         
           withCredentials([usernamePassword(credentialsId: 'cicd/github/cloudsec_nataas_ci_github_cloud_token', usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_TOKEN')]) {
-              dir('opt/staletunnels/') {
+              dir('opt/ip_filler/') {
                   sh '''
                   python3 -m venv venv
                   . venv/bin/activate
