@@ -95,21 +95,6 @@ async def get_expanded_network_ips(expanded_network, current_network):
     return new_available_ips
 
 
-async def lock_region_table(connection, region):
-    """Lock table for specific region to prevent concurrent modifications"""
-    try:
-        lock_query = text("""
-            SELECT * FROM ipaddress_inside_regional 
-            WHERE region = :region 
-            FOR UPDATE NOWAIT
-        """)
-        await connection.execute(lock_query, {"region": region})
-    except Exception:
-        logger.error(f"Region {region} is currently locked by another process. Please try again later.")
-        raise SystemExit(1)
-
-
-
 async def insert_ip_addresses(engine, region, ip_addresses, debug=False):
     """
     Insert new IP addresses into ipaddress_inside_regional table with region isolation
