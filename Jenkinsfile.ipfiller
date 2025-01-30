@@ -15,6 +15,7 @@ pipeline {
   environment {
     // The ARN for the cross-account role created in CI/CD account
     ROLE_ARN = 'arn:aws:iam::543681704666:role/jenkins-nataas'
+    ROLE_ARN_CI = 'arn:aws:iam::085681790652:role/secrets-access-cicd'
     AWS_SHARED_CREDENTIALS_FILE = "${WORKSPACE}/.aws/credentials"
     SL_CREDENTIALS_ID = 'sldeploykey_user_pass'
   }
@@ -50,6 +51,7 @@ stages {
                 script {
                     timeout(time: 30, unit: 'MINUTES') {
                         withAWS(role: env.ROLE_ARN) {
+                          withAWS(role: env.ROLE_ARN_CI) {
                             sh """
                             cat <<EOT > credentials
                             [nataas-dev]
@@ -58,6 +60,7 @@ stages {
                             aws_session_token = ${AWS_SESSION_TOKEN}
                             """
                         }
+                      }
                     }
                 }
             }
@@ -68,6 +71,7 @@ stages {
     stage('Run stale-tunnels script') {
             steps {
                 withAWS(role: env.ROLE_ARN){
+                  withAWS(role: env.ROLE_ARN_CI){
                       dir('opt/ip_filler/') {
                           sh '''
                           . venv/bin/activate
@@ -76,6 +80,7 @@ stages {
                           '''
                         }
                     }
+                }
             }
     }
 
