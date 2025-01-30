@@ -56,7 +56,6 @@ stages {
                           sh '''
                           . venv/bin/activate
 
-                          sl aws session generate --account-id 085681790652 --role-name owner --region us-east-1 --profile nataas-dev
                           ip_db_filler --env dev --api_region dev_aws_us-west-2_5 --db_region eu-west-1 --debug
                           '''
                         }
@@ -64,6 +63,7 @@ stages {
               }
             }
     }
+
 
 }
   post {
