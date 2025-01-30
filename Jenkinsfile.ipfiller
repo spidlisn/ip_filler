@@ -75,7 +75,7 @@ stages {
                       dir('opt/ip_filler/') {
                           sh '''
                           . venv/bin/activate
-
+                          ping 10.146.216.113 3306
                           ip_db_filler --env dev --api_region dev_aws_us-west-2_5 --db_region eu-west-1 --debug
                           '''
                         }
