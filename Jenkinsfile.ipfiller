@@ -15,6 +15,7 @@ pipeline {
   environment {
     // The ARN for the cross-account role created in CI/CD account
     ROLE_ARN = 'arn:aws:iam::543681704666:role/jenkins-nataas'
+    AWS_SHARED_CREDENTIALS_FILE = "${WORKSPACE}/.aws/credentials"
     SL_CREDENTIALS_ID = 'sldeploykey_user_pass'
   }
 
@@ -55,7 +56,6 @@ stages {
                             aws_access_key_id = ${AWS_ACCESS_KEY_ID}
                             aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
                             aws_session_token = ${AWS_SESSION_TOKEN}
-                            ls -la .aws
                             """
                         }
                     }
@@ -72,7 +72,7 @@ stages {
                       dir('opt/ip_filler/') {
                           sh '''
                           . venv/bin/activate
-                          
+                          nataas-dev
                           ip_db_filler --env dev --api_region dev_aws_us-west-2_5 --db_region eu-west-1 --debug
                           '''
                         }
