@@ -95,44 +95,66 @@ async def get_expanded_network_ips(expanded_network, current_network):
     return new_available_ips
 
 
-async def insert_ip_addresses(engine, region, ip_addresses, debug=False):
-    """
-    Insert new IP addresses into ipaddress_inside_regional table with region isolation
-    Shows progress and optionally logs duplicate entries
-    """
-
-    total_ips = len(ip_addresses)
+async def process_batch(connection, batch_id, region, batch_ips, progress_bar):
+    """Process single batch of IPs with its own progress bar"""
     inserted_count = 0
     skipped_count = 0
-    progress_bar = tqdm.tqdm(total=total_ips, desc="Inserting IPs", miniters=2, ncols=100)
+    chunk_size = 100  # Smaller chunks for more frequent updates
+
+    insert_query = text("""
+        INSERT IGNORE INTO ipaddress_inside_regional (region, address, timestamp, inuse)
+        VALUES (:region, :address, '1970-01-01 00:00:00', 0)
+    """)
+
+    for i in range(0, len(batch_ips), chunk_size):
+        chunk = batch_ips[i:i + chunk_size]
+        params = [{"region": region, "address": ip} for ip in chunk]
+        result = await connection.execute(insert_query, params)
+        inserted_count += result.rowcount
+        skipped_count += len(chunk) - result.rowcount
+        progress_bar.update(len(chunk))
+        progress_bar.set_postfix({'inserted': inserted_count, 'skipped': skipped_count}, refresh=True)
+        await asyncio.sleep(0.1)  # Small delay to allow UI updates
+
+    return inserted_count, skipped_count
+
+
+async def insert_ip_addresses(engine, region, ip_addresses, debug=False):
+    total_ips = len(ip_addresses)
+    batch_size = total_ips // 3
+
+    progress_bars = [
+        tqdm.tqdm(
+            total=batch_size,
+            desc=f"Batch {i + 1}/3",
+            position=i,
+            leave=True,
+            miniters=1,
+            mininterval=0.1
+        ) for i in range(3)
+    ]
 
     async with engine.begin() as connection:
-        # await lock_region_table(connection, region)
+        batches = [
+            ip_addresses[i:i + batch_size]
+            for i in range(0, total_ips, batch_size)
+        ]
 
-        insert_query = text("""
-            INSERT IGNORE INTO ipaddress_inside_regional (region, address, timestamp, inuse)
-            VALUES (:region, :address, '1970-01-01 00:00:00', 0)
-        """)
+        tasks = [
+            process_batch(connection, i, region, batch, progress_bars[i])
+            for i, batch in enumerate(batches[:3])
+        ]
 
-        for ip in ip_addresses:
-            try:
-                result = await connection.execute(
-                    insert_query,
-                    {"region": region, "address": ip}
-                )
-                if result.rowcount > 0:
-                    inserted_count += 1
-                else:
-                    skipped_count += 1
-            except Exception as e:
-                if debug:
-                    logger.error(f"Error inserting IP {ip}: {str(e)}")
-                skipped_count += 1
-            finally:
-                progress_bar.update(1)
+        results = await asyncio.gather(*tasks)
 
-    progress_bar.close()
-    logger.info(f"Insertion complete - Total IPs: {total_ips}, Inserted: {inserted_count}, Skipped: {skipped_count}")
+        total_inserted = sum(r[0] for r in results)
+        total_skipped = sum(r[1] for r in results)
+
+    for bar in progress_bars:
+        bar.close()
+
+    logger.info(f"Concurrent insertion complete - Total IPs: {total_ips}, "
+                f"Inserted: {total_inserted}, Skipped: {total_skipped}")
 
 
 def main():
