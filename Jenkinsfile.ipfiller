@@ -62,22 +62,9 @@ stages {
                         }
                     }
               }
+            }
+    }
 
-  // stages {
-  //   stage("Installing the python dependencies") {
-  //     steps{
-  //       timeout(time: 30, unit: 'MINUTES') {
-  //         withAWS(role: env.ROLE_ARN) {
-  //           sh """#!/bin/bash
-  //           echo 'Installing and upgrading dependencies'
-  //           ansible-galaxy collection install amazon.aws
-  //           python3 -m pip install --upgrade pip awscli requests urllib3 pyOpenSSL
-  //           """
-  //         }
-  //       }
-  //     }
-  //   }
-  // }
 }
   post {
       always {
