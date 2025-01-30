@@ -45,8 +45,24 @@ stages {
                   '''
               }
           }
+            dir('.aws') {
+                script {
+                    timeout(time: 30, unit: 'MINUTES') {
+                        withAWS(role: env.ROLE_ARN) {
+                            sh """
+                            cat <<EOT > credentials
+                            [nataas-${env.DEPLOY_ENVIRONMENT}]
+                            aws_access_key_id = ${AWS_ACCESS_KEY_ID}
+                            aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+                            aws_session_token = ${AWS_SESSION_TOKEN}
+                            """
+                        }
+                    }
+                }
+            }
+          }
     }
-  }
+  
 
     stage('Run stale-tunnels script') {
             steps {
