@@ -96,37 +96,27 @@ async def get_expanded_network_ips(expanded_network, current_network):
 
 
 async def process_batch(connection, batch_id, region, batch_ips, progress_bar):
-    """Process single batch of IPs with optimized transaction handling"""
+    """Process single batch of IPs with its own progress bar"""
     inserted_count = 0
     skipped_count = 0
-    batch_size = 5000  # Increased from 100
-
-    # Disable checks for faster inserts
-    await connection.execute(text("SET foreign_key_checks=0"))
-    await connection.execute(text("SET unique_checks=0"))
-    await connection.execute(text("SET autocommit=0"))
+    chunk_size = 100  # Smaller chunks for more frequent updates
 
     insert_query = text("""
         INSERT IGNORE INTO ipaddress_inside_regional (region, address, timestamp, inuse)
-        VALUES (:region, :address, '1970-01-01 00:00:00 UTC', 0)
+        VALUES (:region, :address, '1970-01-01 00:00:00', 0)
     """)
 
-    for i in range(0, len(batch_ips), batch_size):
-        chunk = batch_ips[i:i + batch_size]
+    for i in range(0, len(batch_ips), chunk_size):
+        chunk = batch_ips[i:i + chunk_size]
         params = [{"region": region, "address": ip} for ip in chunk]
         result = await connection.execute(insert_query, params)
         inserted_count += result.rowcount
         skipped_count += len(chunk) - result.rowcount
         progress_bar.update(len(chunk))
         progress_bar.set_postfix({'inserted': inserted_count, 'skipped': skipped_count}, refresh=True)
-
-    # Re-enable checks
-    await connection.execute(text("SET foreign_key_checks=1"))
-    await connection.execute(text("SET unique_checks=1"))
-    await connection.execute(text("SET autocommit=1"))
+        await asyncio.sleep(0.1)  # Small delay to allow UI updates
 
     return inserted_count, skipped_count
-
 
 
 async def insert_ip_addresses(engine, region, ip_addresses, debug=False):
