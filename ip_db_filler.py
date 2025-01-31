@@ -1,21 +1,12 @@
 import os
-import subprocess
 import json
-import asyncio
-import tqdm
 import logging
 import argparse
 import boto3
-from ipaddress import ip_address, ip_network
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy import text
-
-
-# AUTH_ACCOUNT_MAP = {
-#     "dev": "085681790652",
-#     "stage": "958542800488",
-#     "prod": "029959144006"
-# }
+import subprocess
+import tempfile
+from ipaddress import ip_network
+from sqlalchemy import create_engine, text
 
 DB_CONFIGS = {
     'local': 'localhost/localdevdb',
@@ -23,7 +14,6 @@ DB_CONFIGS = {
     'stage': '',
     'prod': ''
 }
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,29 +23,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def validate_region(engine, input_region):
-    """
-    Validates if the provided region exists in the regions table
-
-    Args:
-        engine: SQLAlchemy async engine instance
-        input_region (str): Region provided through CLI args
-
-    Returns:
-        bool: True if region exists, False otherwise
-    """
-    async with engine.connect() as connection:
+def validate_region(engine, input_region):
+    """Validates if the provided region exists in the regions table"""
+    with engine.connect() as connection:
         query = text("SELECT region_name FROM region")
-        result = await connection.execute(query)
+        result = connection.execute(query)
         db_regions = [row[0] for row in result]
-
         return input_region in db_regions
 
 
-async def get_db_credentials(environment, aws_region):
-    """
-    Fetches database credentials from AWS Secrets Manager
-    """
+def get_db_credentials(environment, aws_region):
+    """Fetches database credentials from AWS Secrets Manager"""
     if environment == "local":
         return {"root": "strongpassword"}
 
@@ -65,148 +43,112 @@ async def get_db_credentials(environment, aws_region):
         region_name=aws_region
     )
 
-    # Match the exact path format from summon command
     secret_name = f"{environment}/api/rds"
     try:
         response = client.get_secret_value(SecretId=secret_name)
-        credentials = json.loads(response['SecretString'])
-        return credentials
+        return json.loads(response['SecretString'])
     except client.exceptions.ResourceNotFoundException:
         logger.error(f"Secret not found: {secret_name}")
         raise SystemExit(1)
 
 
-async def get_expanded_network_ips(expanded_network, current_network):
-    """
-    Returns IP addresses available in the expanded network that are not present in the current network.
-    Useful when expanding from a smaller to a larger network range (e.g., /16 to /15).
-
-    Args:
-        expanded_network (str): The larger network in CIDR notation (e.g., '172.18.0.0/15')
-        current_network (str): The smaller network in CIDR notation (e.g., '172.18.0.0/16')
-
-    Returns:
-        list: List of new IP addresses as strings that become available in the expanded network
-    """
+def get_expanded_network_ips(expanded_network, current_network):
+    """Returns new IP addresses available in the expanded network"""
     expanded_range = ip_network(expanded_network)
     current_range = ip_network(current_network)
-
-    new_available_ips = [int(ip) for ip in expanded_range.hosts() if ip not in current_range]
-    return new_available_ips
+    return [int(ip) for ip in expanded_range.hosts() if ip not in current_range]
 
 
-async def process_batch(connection, batch_id, region, batch_ips, progress_bar):
-    """Process single batch of IPs with optimized transaction handling"""
-    inserted_count = 0
-    skipped_count = 0
-    batch_size = 5000  # Increased from 100
+def generate_dump_file(region, ip_addresses):
+    """Generate MySQL dump file with new IPs"""
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sql') as f:
+        f.write("/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;\n")
+        f.write("/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;\n")
+        f.write("/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;\n")
+        f.write("/*!40101 SET NAMES utf8 */;\n")
+        f.write("SET foreign_key_checks=0;\n")
+        f.write("SET unique_checks=0;\n")
+        f.write("SET autocommit=0;\n")
 
-    # Disable checks for faster inserts
-    await connection.execute(text("SET foreign_key_checks=0"))
-    await connection.execute(text("SET unique_checks=0"))
-    await connection.execute(text("SET autocommit=0"))
+        # Write INSERT IGNORE statement
+        f.write("INSERT IGNORE INTO ipaddress_inside_regional (region, address, timestamp, inuse) VALUES\n")
 
-    insert_query = text("""
-        INSERT IGNORE INTO ipaddress_inside_regional (region, address, timestamp, inuse)
-        VALUES (:region, :address, '1970-01-01 00:00:00 UTC', 0)
-    """)
+        # Generate values
+        values = []
+        for ip in ip_addresses:
+            values.append(f"('{region}', {ip}, '1970-01-01 00:00:00 UTC', 0)")
 
-    for i in range(0, len(batch_ips), batch_size):
-        chunk = batch_ips[i:i + batch_size]
-        params = [{"region": region, "address": ip} for ip in chunk]
-        result = await connection.execute(insert_query, params)
-        inserted_count += result.rowcount
-        skipped_count += len(chunk) - result.rowcount
-        progress_bar.update(len(chunk))
-        progress_bar.set_postfix({'inserted': inserted_count, 'skipped': skipped_count}, refresh=True)
+        f.write(",\n".join(values) + ";\n")
 
-    # Re-enable checks
-    await connection.execute(text("SET foreign_key_checks=1"))
-    await connection.execute(text("SET unique_checks=1"))
-    await connection.execute(text("SET autocommit=1"))
-
-    return inserted_count, skipped_count
+        f.write("SET foreign_key_checks=1;\n")
+        f.write("SET unique_checks=1;\n")
+        f.write("SET autocommit=1;\n")
+        f.write("COMMIT;\n")
+        return f.name
 
 
+def load_dump(engine, dump_file, db_credentials, env):
+    """Load dump file into database using mysql client"""
+    host = DB_CONFIGS[env].split('/')[0]
+    database = DB_CONFIGS[env].split('/')[1]
+    username = list(db_credentials.keys())[0]
+    password = db_credentials[username]
 
-async def insert_ip_addresses(engine, region, ip_addresses, debug=False):
-    total_ips = len(ip_addresses)
-    batch_size = total_ips // 3
-
-    progress_bars = [
-        tqdm.tqdm(
-            total=batch_size,
-            desc=f"Batch {i + 1}/3",
-            position=i,
-            leave=True,
-            miniters=1,
-            mininterval=0.1
-        ) for i in range(3)
+    cmd = [
+        'mysql',
+        f'-h{host}',
+        f'-u{username}',
+        f'-p{password}',
+        f'--protocol=TCP',
+        f'--port=3306',
+        database
     ]
 
-    async with engine.begin() as connection:
-        batches = [
-            ip_addresses[i:i + batch_size]
-            for i in range(0, total_ips, batch_size)
-        ]
-
-        tasks = [
-            process_batch(connection, i, region, batch, progress_bars[i])
-            for i, batch in enumerate(batches[:3])
-        ]
-
-        results = await asyncio.gather(*tasks)
-
-        total_inserted = sum(r[0] for r in results)
-        total_skipped = sum(r[1] for r in results)
-
-    for bar in progress_bars:
-        bar.close()
-
-    logger.info(f"Concurrent insertion complete - Total IPs: {total_ips}, "
-                f"Inserted: {total_inserted}, Skipped: {total_skipped}")
+    with open(dump_file, 'r') as f:
+        subprocess.run(cmd, stdin=f, check=True)
 
 
 def main():
-    """Main entry point for the script"""
-    parser = argparse.ArgumentParser(description='Update IPs in API database')
+    parser = argparse.ArgumentParser(description='Bulk load IPs into API database using MySQL dump')
     parser.add_argument('--env', default='dev', help='Environment (dev/stage/prod)')
     parser.add_argument('--api_region', required=True, help='API AWS region to fill IPs')
     parser.add_argument('--db_region', help='RDS instance region')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
 
     args = parser.parse_args()
-
     if args.env != 'local' and not args.db_region:
         parser.error("Please provide --db_region when not running locally")
 
-    return asyncio.run(async_main(args))
-
-async def async_main(args):
-
-    # Network range
     expanded_network = '172.18.0.0/15'
     current_network = '172.18.0.0/16'
 
-
-    db_credentials = await get_db_credentials(args.env, args.db_region)
+    db_credentials = get_db_credentials(args.env, args.db_region)
+    db_host = DB_CONFIGS[args.env]
     username = list(db_credentials.keys())[0]
     password = db_credentials[username]
-    db_host = DB_CONFIGS[args.env]
 
-    db_url = f"mysql+aiomysql://{username}:{password}@{db_host}"
-    engine = create_async_engine(db_url)
+    db_url = f"mysql+pymysql://{username}:{password}@{db_host}"
+    engine = create_engine(db_url)
 
     try:
-        # logger.info(await validate_region(engine, args.api_region))
-        if not await validate_region(engine, args.api_region):
-            logger.error(f"Region {args.region} not found in database")
+        if not validate_region(engine, args.api_region):
+            logger.error(f"Region {args.api_region} not found in database")
             return
 
-        new_ips = await get_expanded_network_ips(expanded_network, current_network)
-        await insert_ip_addresses(engine, args.api_region, new_ips)
+        logger.info("Calculating IP addresses...")
+        new_ips = get_expanded_network_ips(expanded_network, current_network)
+
+        logger.info(f"Generating dump file for {len(new_ips)} addresses...")
+        dump_file = generate_dump_file(args.api_region, new_ips)
+
+        logger.info("Loading dump into database...")
+        load_dump(engine, dump_file, db_credentials, args.env)
+        logger.info("Import completed successfully")
+
     finally:
-        await engine.dispose()
+        if 'dump_file' in locals():
+            os.unlink(dump_file)
+
 
 if __name__ == '__main__':
     main()
