@@ -45,15 +45,34 @@ options:
 
 ```
 **Note**: Stage and Prod envs currently unavailable.
-
+## Before usage
+Before using the script we have to update the `inside_prefix` field for the region. Example:
+```bash
+curl -k -X 'PUT' \
+  'https://api-dev.nataas.strln.net/backend/region/dev_aws_us-west-2_5' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -H "x-access-token: $gt" \
+  -d '{
+      "inside_prefix": "172.18.0.0/15"
+  }' | jq .
+ ```
 ## Example
-***If you are using not local envoriment, you need to login first, to enable RDS access. For example for the DEV 
+***If you are using not local environment, you need to login first, to enable RDS access. For example for the DEV 
 we have to use `aws-nataas-dev` command for login. This step might be fixed later*** 
 ```bash
-ip_db_filler --env local --api_region dev_aws_us-west-2_3 --debug
+ip_db_filler --env local --api_region dev_aws_us-west-2_3
 ```
 **Note** You don't need to specify the RDS db_region for the local environment.
 
 ```bash
-ip_db_filler --env dev --api_region dev_aws_us-west-2_3 --db_region eu-west-1 --debug
+ip_db_filler --env dev --api_region dev_aws_us-west-2_3 --db_region eu-west-1
 ```
+
+## DB Regions
+
+| environment | region |
+| --- |---|
+dev | eu-west-1 |
+stage | us-east-1 |
+prod | us-east-1 |

@@ -11,8 +11,8 @@ from sqlalchemy import create_engine, text
 DB_CONFIGS = {
     'local': 'localhost/localdevdb',
     'dev': 'devdb-mysql8-aurora-3-05-2.cluster-c1a1rfqxl7mh.eu-west-1.rds.amazonaws.com/devdb',
-    'stage': '',
-    'prod': ''
+    'stage': 'stagedb-mysql8-aurora-3-05-2.cluster-c0cmryw6wtox.us-east-1.rds.amazonaws.com/stagedb',
+    'prod': 'proddb-mysql8-aurora-3-05-2.cluster-c20yinhaflta.us-east-1.rds.amazonaws.com/proddb'
 }
 
 logging.basicConfig(
