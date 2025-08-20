@@ -53,10 +53,14 @@ def get_db_credentials(environment, aws_region):
 
 
 def get_expanded_network_ips(expanded_network, current_network):
-    """Returns new IP addresses available in the expanded network"""
+    """Returns new IP addresses available in the expanded network including broadcast IP"""
     expanded_range = ip_network(expanded_network)
     current_range = ip_network(current_network)
-    return [int(ip) for ip in expanded_range.hosts() if ip not in current_range]
+
+    # Get all host IPs plus broadcast IP
+    all_ips = list(expanded_range.hosts()) + [expanded_range.broadcast_address]
+
+    return [int(ip) for ip in all_ips if ip not in current_range]
 
 
 def generate_dump_file(region, ip_addresses):
